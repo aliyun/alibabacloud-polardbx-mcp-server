@@ -1,0 +1,23 @@
+{
+  "name": "polardbx-mcp",
+  "version": "0.1.0",
+  "description": "PolarDB-X MCP servers",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "polardbx-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x build/index.js",
+    "start": "node build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "mysql2": "^3.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.30",
+    "typescript": "^5.3.2"
+  }
+}
