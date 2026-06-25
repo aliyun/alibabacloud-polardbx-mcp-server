@@ -57,7 +57,35 @@ let polarDbXPoolOptions: mysql.PoolOptions = {
   connectionLimit: 10,
   waitForConnections: true,
   queueLimit: 0,
+  // 禁止多语句,从驱动层拦截 "SELECT 1; DROP TABLE" 这类堆叠注入
+  multipleStatements: false,
 };
+
+// 只读模式下允许的语句首关键字白名单
+const READ_ONLY_LEADING_KEYWORDS = ['SELECT', 'WITH', 'SHOW', 'DESC', 'DESCRIBE', 'EXPLAIN', 'USE'];
+
+/**
+ * 只读模式下校验 SQL:剥离注释后,要求首关键字落在只读白名单内。
+ * 剥离注释可防止 `/* SELECT *​/ DROP TABLE` 这类注释绕过。
+ */
+function assertReadOnlySql(sql: string): void {
+  const stripped = sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ') // 块注释 /* ... */
+    .replace(/--[^\n]*/g, ' ')          // 行注释 -- ...
+    .replace(/#[^\n]*/g, ' ')           // 行注释 # ...
+    .trim();
+  if (stripped === '') {
+    throw new Error('Empty SQL statement is not allowed');
+  }
+  const leading = stripped.match(/^[a-zA-Z]+/)?.[0]?.toUpperCase() ?? '';
+  if (!READ_ONLY_LEADING_KEYWORDS.includes(leading)) {
+    throw new Error(
+      `Read-only mode: statement starting with "${leading || stripped.slice(0, 16)}" is not allowed. ` +
+      `Allowed: ${READ_ONLY_LEADING_KEYWORDS.join(', ')}. ` +
+      `Set POLARDB_X_READ_ONLY=false to enable write operations.`
+    );
+  }
+}
 
 class PolarDBXServer {
   private server: Server;
@@ -131,6 +159,13 @@ class PolarDBXServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (request.params.name === "query") {
         const sql = request.params.arguments?.sql as string;
+        if (typeof sql !== 'string' || sql.trim() === '') {
+          throw new Error('Parameter "sql" must be a non-empty string');
+        }
+        // 只读模式下做语句级校验,确保只读保证不依赖事务兜底
+        if (dbReadOnly) {
+          assertReadOnlySql(sql);
+        }
 
         const [result] = await this.executeQuery(sql);
         return {
@@ -215,12 +250,12 @@ class PolarDBXServer {
       if (dbReadOnly) {
         await currentConn.query('START TRANSACTION READ ONLY');
       }
-      const result = currentConn.query(sql, params);
+      const result = await currentConn.query(sql, params);
       // 提交事务
       if (dbReadOnly) {
         await currentConn.query('COMMIT');
       }
-      return result as Promise<[T, FieldPacket[]]>;
+      return result as [T, FieldPacket[]];
     } catch (error) {
       console.error('执行SQL查询时出错:', error);
       // 在发生错误时也尝试提交，避免事务挂起
