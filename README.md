@@ -1,5 +1,4 @@
 # polardbx-mcp
-
 A Model Context Protocol (MCP) servers which provides tools and resources, allowing AI agent to interact with Alibaba cloud [PolarDB-X](https://github.com/polardb/polardbx-sql) databases.
 
 ## Installation
